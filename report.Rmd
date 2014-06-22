@@ -1,0 +1,100 @@
+Exercise Habits
+================
+
+## Synopsis
+The "quantified self" movement has produced vast data on human exercise habits. This paper examines the exercise habits of six individuals using a number of machine-learning algorithms.
+
+## Reading data
+
+```{r echo=FALSE}
+library(caret)
+dat <- read.csv("pml-training.csv")
+```
+
+## Exploring the data a bit
+
+pairs(dat[c("classe", "roll_belt", "pitch_belt", "yaw_belt")])
+
+There are 160 variables in this data set, and we should pare this down to a smaller number of relevant variables. We'll assume that there are no time-dependent effects.  Looking at a summary of NA data, we also find out that many of the variables have a majority of 'NA' data points, so we don't need to consider these at all.
+
+```{r}
+twodat <- dat[colSums(is.na(dat)==FALSE)>19000]
+```
+
+We also searched around for variables with a high correlation to the "classe" factor, which we will use later.
+
+## Setting up cross-validation
+In order to increase accuracy, we want to make sure to perform cross-validation, so we will split up the group into 3 independent samples (for the direct analysis, 10 samples and 10 repeats were performed, but this takes quite a long time).
+
+```{r}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 3,
+                           ## repeated three times
+                           repeats = 3)
+```
+
+
+## Naive linear model
+
+```{r echo=FALSE, results='hide', cache=TRUE}
+modfit <- train(classe~roll_belt+total_accel_belt, data=dat, method="gbm")
+```
+
+```{r}
+table(dat$classe, predict(modfit, newdata=dat[c("roll_belt", "total_accel_belt")]))
+```
+
+This model does converge in a reasonable amount of time, but it doesn't get very good accuracy -- only about 58%. We're clearly not dealing with a problem in which a linear model is appropriate.
+
+
+## Boosting model
+Here we try a boosting model, trained against a set of selected variables:
+
+```{r cache=TRUE, echo=FALSE, results='hide'}
+threedat <- twodat[c(2, 7, 10, 30, 73)]
+threedat$classe <- twodat$classe
+fitControl <- trainControl(method = "repeatedcv", number = 3, repeats = 3)
+mf3 <- train(classe ~., data=threedat, method="gbm", trControl = fitControl)
+```
+
+```{r}
+mf3
+table(threedat$classe, predict(mf3, newdata=threedat))
+```
+
+The results of this are very encouraging; 99.8% accuracy is a fantastic result, although we might be curious whether we over-fitted the data.
+
+The relative importance of the factors we used is shown below:
+```{r}
+summary(mf3)
+```
+
+## Out-of-sample error rate
+
+Here, we create 5 folds and cross-validate the data against them.
+
+```{r}
+#create folds
+N = 5
+f <- createFolds(y=threedat$classe, k=N)
+pct_correct <- rep(0,N)
+#apply cross-validation
+for(n in 1:N){
+  pct_correct[n] <- sum(threedat$classe[as.numeric(unlist(f[2]))]==predict(mf3, newdata=threedat[as.numeric(unlist(f[2])),1:5]))/length(unlist(f[2]))
+}
+pct_correct
+mean(pct_correct)
+```
+
+The error rate gained from our cross-validation methods is again 99.8%. Supposing five times inflation in error rate for out-of-sample data, we would still achieve a 99% accuracy rate. We can be fairly confident that our model will perform at least this well.
+
+## Testing
+
+```{r}
+rel_test <- testdat[,names(threedat)[1:5]]
+```
+
+When checking on the testing set, this model performed with 100% accuracy.
+
+## Conclusion
+There are a number of variables that go into whether an exersize is performed correctly, but we managed to be successful just by looking at a few of them.  Sometimes the simpler model may be better :)
